@@ -23,7 +23,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Registro de Gastos',
+      title: 'Gastos DuQuen v1.0',
       theme: ThemeData(
         // Tema principal en color verde azulado (Teal)
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
@@ -50,7 +50,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     // Temporizador de 2 segundos antes de ir a la pantalla principal
-    Timer(const Duration(seconds: 2), () {
+    Timer(const Duration(seconds: 3), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => const ExpenseHomePage()),
@@ -70,7 +70,7 @@ class _SplashScreenState extends State<SplashScreen> {
             Icon(Icons.account_balance_wallet, size: 80, color: Colors.white),
             SizedBox(height: 20),
             Text(
-              "Mis Gastos",
+              "Gastos DuQuen v1.0",
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -217,7 +217,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Registrar Gastos"),
+        title: const Text("Gastos DuQuen v1.0"),
         centerTitle: true,
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
@@ -283,7 +283,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                         controller: _descriptionController,
                         textCapitalization: TextCapitalization.sentences,
                         decoration: const InputDecoration(
-                          labelText: 'Descripción (ej. Almuerzo)',
+                          labelText: 'Descripción (ej. Heladito)',
                           border: OutlineInputBorder(),
                           isDense: true,
                         ),
@@ -300,7 +300,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                         decoration: const InputDecoration(
                           labelText: 'Monto',
                           border: OutlineInputBorder(),
-                          prefixText: '\$ ',
+                          prefixText: 'Bs. ',
                           isDense: true,
                         ),
                       ),
@@ -439,7 +439,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                                     ),
                                   ),
                                   trailing: Text(
-                                    "\$ ${(item['amount'] as num).toStringAsFixed(2)}",
+                                    "Bs. ${(item['amount'] as num).toStringAsFixed(2)}",
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 15,
@@ -478,7 +478,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text(
-                              "TOTAL GASTADO:",
+                              "TOTAL GASTOS:",
                               style: TextStyle(
                                 color: Colors.white70,
                                 fontSize: 14,
@@ -487,7 +487,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                               ),
                             ),
                             Text(
-                              "\$ ${totalAmount.toStringAsFixed(2)}",
+                              "Bs. ${totalAmount.toStringAsFixed(2)}",
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 26,
