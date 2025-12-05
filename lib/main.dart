@@ -1,18 +1,23 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart' as p;
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // INICIALIZACIÓN DE SUPABASE
-  // REEMPLAZA ESTOS VALORES CON TUS PROPIAS CLAVES DE SUPABASE
   await Supabase.initialize(
     url: 'https://ptadxhhlopvrhsroxdmw.supabase.co',
     anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0YWR4aGhsb3B2cmhzcm94ZG13Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY3NDUxMjksImV4cCI6MjA2MjMyMTEyOX0.UTmuf00dvfB1ifk9emecUKV-yEdukpQWGAZ6YfUMaEQ',
   );
+
+  await DatabaseHelper.instance.database;
 
   runApp(const MyApp());
 }
@@ -23,9 +28,8 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Gastos DuQuen v1.0',
+      title: 'Gastos DuQuen',
       theme: ThemeData(
-        // Tema principal en color verde azulado (Teal)
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
@@ -36,11 +40,10 @@ class MyApp extends StatelessWidget {
 }
 
 // ----------------------------------------------------------------
-// 1. PANTALLA DE BIENVENIDA (SPLASH SCREEN)
+// SPLASH SCREEN
 // ----------------------------------------------------------------
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
-
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
@@ -49,14 +52,36 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    // Temporizador de 2 segundos antes de ir a la pantalla principal
-    Timer(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const ExpenseHomePage()),
-        );
-      }
-    });
+    _checkLocalSession();
+  }
+
+  Future<void> _checkLocalSession() async {
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+
+    final db = await DatabaseHelper.instance.database;
+    final users = await db.query('usuarios_local');
+
+    if (users.isNotEmpty) {
+      final user = users.first;
+      _goToHome(user['id'] as int, user['email'] as String);
+    } else {
+      _goToLogin();
+    }
+  }
+
+  void _goToHome(int id, String email) {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => ExpenseHomePage(userId: id, userEmail: email),
+      ),
+    );
+  }
+
+  void _goToLogin() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => const LoginPage()),
+    );
   }
 
   @override
@@ -70,7 +95,8 @@ class _SplashScreenState extends State<SplashScreen> {
             Icon(Icons.account_balance_wallet, size: 80, color: Colors.white),
             SizedBox(height: 20),
             Text(
-              "Gastos DuQuen v1.0",
+              "Gastos DuQuen\nCargando...",
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -87,153 +113,533 @@ class _SplashScreenState extends State<SplashScreen> {
 }
 
 // ----------------------------------------------------------------
-// 2. PANTALLA PRINCIPAL
+// LOGIN PAGE
 // ----------------------------------------------------------------
-class ExpenseHomePage extends StatefulWidget {
-  const ExpenseHomePage({super.key});
-
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
   @override
-  State<ExpenseHomePage> createState() => _ExpenseHomePageState();
+  State<LoginPage> createState() => _LoginPageState();
 }
 
-class _ExpenseHomePageState extends State<ExpenseHomePage> {
-  // Cliente de Supabase
+class _LoginPageState extends State<LoginPage> {
   final _supabase = Supabase.instance.client;
-
-  // Controladores de texto
-  final _descriptionController = TextEditingController();
-  final _amountController = TextEditingController();
-
-  // Estado
-  DateTime _selectedDate = DateTime.now();
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
   bool _isLoading = false;
 
-  // Formato de fecha para la base de datos (yyyy-MM-dd)
-  String get _formattedDate => DateFormat('yyyy-MM-dd').format(_selectedDate);
-  // Formato de fecha para mostrar al usuario (dd/MM/yyyy)
-  String get _displayDate => DateFormat('dd/MM/yyyy').format(_selectedDate);
-
-  @override
-  void dispose() {
-    _descriptionController.dispose();
-    _amountController.dispose();
-    super.dispose();
+  String _hashPassword(String password) {
+    return sha256.convert(utf8.encode(password)).toString();
   }
 
-  // --- LÓGICA: SELECCIONAR FECHA ---
-  Future<void> _pickDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Colors.teal, // Color de cabecera y selección
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-      });
-    }
-  }
+  Future<void> _login() async {
+    final connectivityResult = await Connectivity().checkConnectivity();
+    if (!mounted) return;
 
-  // --- LÓGICA: GUARDAR GASTO ---
-  Future<void> _addExpense() async {
-    final description = _descriptionController.text.trim();
-    final amountText = _amountController.text.trim();
-
-    if (description.isEmpty || amountText.isEmpty) {
+    if (connectivityResult == ConnectivityResult.none) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor completa descripción y monto')),
-      );
-      return;
-    }
-
-    // Validación básica de número
-    final amount = double.tryParse(amountText);
-    if (amount == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El monto debe ser un número válido')),
+        const SnackBar(
+          content: Text("Necesitas internet para el primer inicio de sesión."),
+        ),
       );
       return;
     }
 
     setState(() => _isLoading = true);
-
     try {
-      // Insertar en la tabla 'expenses' de Supabase
-      await _supabase.from('expenses').insert({
-        'description': description,
-        'amount': amount,
-        'date': _formattedDate, // Guarda con la fecha seleccionada
-      });
+      final email = _emailCtrl.text.trim();
+      final hash = _hashPassword(_passCtrl.text.trim());
 
-      // Limpiar campos y cerrar teclado
-      _descriptionController.clear();
-      _amountController.clear();
-      FocusScope.of(context).unfocus();
+      final data = await _supabase
+          .from('usuarios2')
+          .select()
+          .eq('email', email)
+          .eq('password', hash)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      if (data != null) {
+        final userId = data['id'] as int;
+        await DatabaseHelper.instance.saveLocalUser(userId, email);
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ExpenseHomePage(userId: userId, userEmail: email),
+            ),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Credenciales incorrectas")),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _register() async {
+    final email = _emailCtrl.text.trim();
+    final password = _passCtrl.text.trim();
+    if (email.isEmpty || password.isEmpty) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final hash = _hashPassword(password);
+
+      final existing = await _supabase
+          .from('usuarios2')
+          .select()
+          .eq('email', email)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      if (existing != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Correo ya registrado")));
+        return;
+      }
+
+      await _supabase.from('usuarios2').insert({
+        'email': email,
+        'password': hash,
+      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('¡Gasto registrado!'),
+            content: Text("Registrado. Inicia sesión."),
             backgroundColor: Colors.teal,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al guardar: $e'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Definimos el Stream que escucha cambios en la base de datos
-    // Filtramos por la fecha seleccionada (.eq('date', ...))
-    final expenseStream = _supabase
-        .from('expenses')
-        .stream(primaryKey: ['id'])
-        .eq('date', _formattedDate)
-        .order('created_at', ascending: true);
+    return Scaffold(
+      backgroundColor: Colors.teal,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Card(
+            elevation: 8,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  const Icon(Icons.cloud_circle, size: 60, color: Colors.teal),
+                  const SizedBox(height: 20),
+                  const Text(
+                    "Bienvenido",
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _emailCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "Email",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.email),
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                  ),
+                  const SizedBox(height: 15),
+                  TextField(
+                    controller: _passCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: "Contraseña",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.lock),
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+                  _isLoading
+                      ? const CircularProgressIndicator()
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ElevatedButton(
+                              onPressed: _login,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                              ),
+                              child: const Text("ENTRAR"),
+                            ),
+                            TextButton(
+                              onPressed: _register,
+                              child: const Text("Crear cuenta nueva"),
+                            ),
+                          ],
+                        ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------
+// PANTALLA PRINCIPAL (Con Edit y Delete)
+// ----------------------------------------------------------------
+class ExpenseHomePage extends StatefulWidget {
+  final int userId;
+  final String userEmail;
+  const ExpenseHomePage({
+    super.key,
+    required this.userId,
+    required this.userEmail,
+  });
+
+  @override
+  State<ExpenseHomePage> createState() => _ExpenseHomePageState();
+}
+
+class _ExpenseHomePageState extends State<ExpenseHomePage> {
+  final _descCtrl = TextEditingController();
+  final _amountCtrl = TextEditingController();
+
+  DateTime _selectedDate = DateTime.now();
+  String get _dateStr => DateFormat('yyyy-MM-dd').format(_selectedDate);
+  String get _displayDate => DateFormat('dd/MM/yyyy').format(_selectedDate);
+
+  List<Map<String, dynamic>> _localExpenses = [];
+  bool _isSyncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalExpenses();
+    _syncData();
+  }
+
+  Future<void> _loadLocalExpenses() async {
+    final data = await DatabaseHelper.instance.getExpenses(
+      widget.userId,
+      _dateStr,
+    );
+    if (mounted) setState(() => _localExpenses = data);
+  }
+
+  // --- AGREGAR ---
+  Future<void> _addExpense() async {
+    final desc = _descCtrl.text.trim();
+    final amount = double.tryParse(_amountCtrl.text.trim());
+    if (desc.isEmpty || amount == null) return;
+
+    await DatabaseHelper.instance.insertExpense({
+      'description': desc,
+      'amount': amount,
+      'date': _dateStr,
+      'user_id': widget.userId,
+      'is_synced': 0,
+      'supabase_id': null, // Nuevo, no tiene ID remoto aún
+    });
+
+    if (!mounted) return;
+    _descCtrl.clear();
+    _amountCtrl.clear();
+    FocusScope.of(context).unfocus();
+    await _loadLocalExpenses();
+    _syncData();
+  }
+
+  // --- EDITAR ---
+  Future<void> _showEditDialog(Map<String, dynamic> item) async {
+    final editDescCtrl = TextEditingController(text: item['description']);
+    final editAmountCtrl = TextEditingController(
+      text: (item['amount'] as num).toString(),
+    );
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Editar Gasto"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: editDescCtrl,
+              decoration: const InputDecoration(labelText: "Descripción"),
+            ),
+            TextField(
+              controller: editAmountCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: "Monto"),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newDesc = editDescCtrl.text.trim();
+              final newAmount = double.tryParse(editAmountCtrl.text.trim());
+              if (newDesc.isNotEmpty && newAmount != null) {
+                // Actualizamos localmente y marcamos como NO sincronizado para que se suba
+                await DatabaseHelper.instance.updateExpense(item['id'], {
+                  'description': newDesc,
+                  'amount': newAmount,
+                  'is_synced': 0,
+                });
+                if (mounted) {
+                  Navigator.pop(context);
+                  await _loadLocalExpenses();
+                  _syncData(); // Disparar sync para actualizar nube
+                }
+              }
+            },
+            child: const Text("Guardar"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- ELIMINAR ---
+  Future<void> _deleteExpense(Map<String, dynamic> item) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Eliminar Gasto"),
+        content: Text("¿Seguro que quieres borrar '${item['description']}'?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancelar"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Eliminar", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      // 1. Borrar de local
+      await DatabaseHelper.instance.deleteExpense(item['id']);
+
+      // 2. Intentar borrar de nube si tiene ID remoto y hay internet
+      final supabaseId = item['supabase_id'];
+      if (supabaseId != null) {
+        var connectivity = await Connectivity().checkConnectivity();
+        if (connectivity != ConnectivityResult.none) {
+          try {
+            await Supabase.instance.client
+                .from('expenses')
+                .delete()
+                .eq('id', supabaseId);
+          } catch (e) {
+            // Si falla, se queda huérfano en la nube (limitación simple)
+            // O podrías implementar una cola de borrado.
+            debugPrint("Error borrando remoto: $e");
+          }
+        } else {
+          if (mounted)
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  "Borrado local. Conéctate para borrar de la nube.",
+                ),
+              ),
+            );
+        }
+      }
+
+      await _loadLocalExpenses();
+    }
+  }
+
+  // --- SYNC MEJORADO ---
+  Future<void> _syncData() async {
+    if (_isSyncing) return;
+    var connectivityResult = await (Connectivity().checkConnectivity());
+    if (!mounted) return;
+    if (connectivityResult == ConnectivityResult.none) return;
+
+    setState(() => _isSyncing = true);
+
+    try {
+      final supabase = Supabase.instance.client;
+      final unsynced = await DatabaseHelper.instance.getUnsyncedExpenses(
+        widget.userId,
+      );
+
+      // 1. SUBIR CAMBIOS (Insert o Update)
+      for (var row in unsynced) {
+        final supabaseId = row['supabase_id']; // ¿Ya existe en la nube?
+
+        if (supabaseId == null) {
+          // A) Es NUEVO -> Insertar
+          final response = await supabase
+              .from('expenses')
+              .insert({
+                'description': row['description'],
+                'amount': row['amount'],
+                'date': row['date'],
+                'user_id': row['user_id'],
+              })
+              .select()
+              .single(); // Pedimos que nos devuelva el dato insertado
+
+          // Guardamos el ID que Supabase le asignó para futuras ediciones
+          await DatabaseHelper.instance.updateSupabaseId(
+            row['id'],
+            response['id'] as int,
+          );
+        } else {
+          // B) Es EDICIÓN -> Update
+          await supabase
+              .from('expenses')
+              .update({
+                'description': row['description'],
+                'amount': row['amount'],
+              })
+              .eq('id', supabaseId);
+        }
+
+        // Marcar como sincronizado
+        await DatabaseHelper.instance.markAsSynced(row['id']);
+      }
+
+      // 2. BAJAR DATOS (Solo nuevos para no sobreescribir ediciones locales recientes)
+      final remoteData = await supabase
+          .from('expenses')
+          .select()
+          .eq('user_id', widget.userId);
+      final dbHelper = DatabaseHelper.instance;
+      int newItemsCount = 0;
+
+      for (var remoteItem in remoteData) {
+        final rId = remoteItem['id'];
+
+        // Verificamos si ya tenemos este item por su ID de Supabase
+        final exists = await dbHelper.checkIfSupabaseIdExists(rId);
+
+        if (!exists) {
+          await dbHelper.insertExpense({
+            'description': remoteItem['description'],
+            'amount': (remoteItem['amount'] as num).toDouble(),
+            'date': remoteItem['date'],
+            'user_id': widget.userId,
+            'is_synced': 1,
+            'supabase_id': rId, // Guardamos la referencia
+          });
+          newItemsCount++;
+        }
+      }
+
+      if (mounted) {
+        await _loadLocalExpenses();
+        if (unsynced.isNotEmpty || newItemsCount > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Sincronización completada"),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Error de conexión al sincronizar")),
+        );
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  Future<void> _logout() async {
+    await DatabaseHelper.instance.logoutLocalUser();
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    double total = _localExpenses.fold(
+      0,
+      (sum, item) => sum + (item['amount'] as num).toDouble(),
+    );
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Gastos DuQuen v1.0"),
-        centerTitle: true,
+        title: Column(
+          children: [
+            const Text("Gastos DuQuen", style: TextStyle(fontSize: 18)),
+            Text(
+              widget.userEmail,
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+            ),
+          ],
+        ),
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
-        elevation: 2,
+        actions: [
+          if (_isSyncing)
+            const Padding(
+              padding: EdgeInsets.all(12.0),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.sync),
+            onPressed: _syncData,
+            tooltip: "Sincronizar",
+          ),
+          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+        ],
       ),
       body: Column(
         children: [
-          // -------------------------------------------
-          // SECCIÓN 1: Selector de Fecha
-          // -------------------------------------------
+          // HEADER FECHA
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.teal.shade50,
-              border: Border(bottom: BorderSide(color: Colors.teal.shade100)),
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            color: Colors.teal.shade50,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -241,13 +647,13 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      "Viendo gastos del:",
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                      "Fecha:",
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
                     ),
                     Text(
                       _displayDate,
                       style: TextStyle(
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: Colors.teal.shade800,
                       ),
@@ -255,256 +661,293 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                   ],
                 ),
                 ElevatedButton.icon(
-                  onPressed: () => _pickDate(context),
-                  icon: const Icon(Icons.calendar_month, size: 18),
-                  label: const Text("Cambiar fecha"),
+                  onPressed: () async {
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: _selectedDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (!mounted) return;
+                    if (d != null) {
+                      setState(() => _selectedDate = d);
+                      _loadLocalExpenses();
+                    }
+                  },
+                  icon: const Icon(Icons.calendar_month),
+                  label: const Text("Cambiar"),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: Colors.teal,
-                    elevation: 1,
                   ),
                 ),
               ],
             ),
           ),
 
-          // -------------------------------------------
-          // SECCIÓN 2: Formulario de Entrada
-          // -------------------------------------------
+          // FORMULARIO AGREGAR
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        controller: _descriptionController,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(
-                          labelText: 'Descripción (ej. Heladito)',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                      ),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _descCtrl,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: "Descripción",
+                      border: OutlineInputBorder(),
+                      isDense: true,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 1,
-                      child: TextField(
-                        controller: _amountController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Monto',
-                          border: OutlineInputBorder(),
-                          prefixText: 'Bs. ',
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 45,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _addExpense,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Text(
-                            "ADICIONAR NUEVO GASTO",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
                   ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _amountCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: "Monto",
+                      border: OutlineInputBorder(),
+                      prefixText: "Bs. ",
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                IconButton.filled(
+                  onPressed: _addExpense,
+                  icon: const Icon(Icons.add),
+                  style: IconButton.styleFrom(backgroundColor: Colors.teal),
                 ),
               ],
             ),
           ),
 
-          const Divider(height: 1, thickness: 1),
-
-          // -------------------------------------------
-          // SECCIÓN 3: Lista de Gastos (StreamBuilder)
-          // -------------------------------------------
+          // LISTA DE GASTOS
           Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: expenseStream,
-              builder: (context, snapshot) {
-                // Estado de Error
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Text(
-                        'Error al cargar datos: ${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red),
-                      ),
+            child: _localExpenses.isEmpty
+                ? const Center(
+                    child: Text(
+                      "Sin gastos en esta fecha",
+                      style: TextStyle(color: Colors.grey),
                     ),
-                  );
-                }
+                  )
+                : ListView.separated(
+                    itemCount: _localExpenses.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final item = _localExpenses[index];
+                      final synced = item['is_synced'] == 1;
 
-                // Estado de Carga
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final expenses = snapshot.data!;
-
-                // Calcular el total en tiempo real
-                double totalAmount = 0;
-                for (var expense in expenses) {
-                  // Supabase puede devolver int o double, aseguramos double
-                  totalAmount += (expense['amount'] as num).toDouble();
-                }
-
-                return Column(
-                  children: [
-                    // Cabecera de la lista
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      color: Colors.grey.shade100,
-                      child: Text(
-                        "Lista de movimientos (${expenses.length})",
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ),
-
-                    // La Lista en sí
-                    Expanded(
-                      child: expenses.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.notes,
-                                    size: 60,
-                                    color: Colors.grey.shade300,
-                                  ),
-                                  const SizedBox(height: 10),
-                                  const Text(
-                                    "No hay gastos registrados hoy",
-                                    style: TextStyle(color: Colors.grey),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : ListView.separated(
-                              itemCount: expenses.length,
-                              separatorBuilder: (ctx, i) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final item = expenses[index];
-                                return ListTile(
-                                  dense: true,
-                                  leading: CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: Colors.teal.shade100,
-                                    child: Icon(
-                                      Icons.receipt_long,
-                                      color: Colors.teal.shade700,
-                                      size: 18,
-                                    ),
-                                  ),
-                                  title: Text(
-                                    item['description'],
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  trailing: Text(
-                                    "Bs. ${(item['amount'] as num).toStringAsFixed(2)}",
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-
-                    // -------------------------------------------
-                    // SECCIÓN 4: Footer con Acumulado
-                    // -------------------------------------------
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 20,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.teal.shade900,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 10,
-                            offset: const Offset(0, -5),
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: synced
+                              ? Colors.teal.shade100
+                              : Colors.orange.shade100,
+                          child: Icon(
+                            synced ? Icons.cloud_done : Icons.cloud_upload,
+                            color: synced ? Colors.teal : Colors.orange,
+                            size: 20,
                           ),
-                        ],
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(24),
-                          topRight: Radius.circular(24),
                         ),
-                      ),
-                      child: SafeArea(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        title: Text(
+                          item['description'],
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                        subtitle: Text(
+                          "Bs. ${(item['amount'] as num).toStringAsFixed(2)}",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text(
-                              "TOTAL GASTOS:",
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
+                            IconButton(
+                              icon: const Icon(
+                                Icons.edit,
+                                color: Colors.blueGrey,
                               ),
+                              onPressed: () => _showEditDialog(item),
                             ),
-                            Text(
-                              "Bs. ${totalAmount.toStringAsFixed(2)}",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 26,
-                                fontWeight: FontWeight.bold,
+                            IconButton(
+                              icon: const Icon(
+                                Icons.delete,
+                                color: Colors.redAccent,
                               ),
+                              onPressed: () => _deleteExpense(item),
                             ),
                           ],
                         ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                      );
+                    },
+                  ),
+          ),
+
+          // FOOTER TOTAL
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.teal.shade900,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(24),
+                topRight: Radius.circular(24),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "TOTAL DÍA:",
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  "Bs. ${total.toStringAsFixed(2)}",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+// =========================================================================
+// GESTOR DE BASE DE DATOS LOCAL (SQLite)
+// =========================================================================
+class DatabaseHelper {
+  static final DatabaseHelper instance = DatabaseHelper._init();
+  static Database? _database;
+
+  DatabaseHelper._init();
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDB(
+      'gastos_offline_v2.db',
+    ); // Cambié nombre para forzar nueva DB limpia
+    return _database!;
+  }
+
+  Future<Database> _initDB(String filePath) async {
+    final dbPath = await getDatabasesPath();
+    final path = p.join(dbPath, filePath);
+    return await openDatabase(path, version: 1, onCreate: _createDB);
+  }
+
+  Future _createDB(Database db, int version) async {
+    // Añadimos 'supabase_id' para poder editar/borrar remotamente
+    await db.execute('''
+    CREATE TABLE expenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      description TEXT NOT NULL,
+      amount REAL NOT NULL,
+      date TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      is_synced INTEGER DEFAULT 0,
+      supabase_id INTEGER
+    )
+    ''');
+
+    await db.execute('''
+    CREATE TABLE usuarios_local (
+      id INTEGER PRIMARY KEY,
+      email TEXT NOT NULL
+    )
+    ''');
+  }
+
+  Future<void> saveLocalUser(int id, String email) async {
+    final db = await instance.database;
+    await db.delete('usuarios_local');
+    await db.insert('usuarios_local', {'id': id, 'email': email});
+  }
+
+  Future<void> logoutLocalUser() async {
+    final db = await instance.database;
+    await db.delete('usuarios_local');
+  }
+
+  Future<int> insertExpense(Map<String, dynamic> row) async {
+    final db = await instance.database;
+    return await db.insert('expenses', row);
+  }
+
+  // NUEVO: Actualizar gasto
+  Future<int> updateExpense(int id, Map<String, dynamic> row) async {
+    final db = await instance.database;
+    return await db.update('expenses', row, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // NUEVO: Eliminar gasto
+  Future<int> deleteExpense(int id) async {
+    final db = await instance.database;
+    return await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // NUEVO: Guardar el ID de Supabase después de subirlo
+  Future<int> updateSupabaseId(int localId, int supabaseId) async {
+    final db = await instance.database;
+    return await db.update(
+      'expenses',
+      {'supabase_id': supabaseId},
+      where: 'id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<bool> checkIfSupabaseIdExists(int supabaseId) async {
+    final db = await instance.database;
+    final res = await db.query(
+      'expenses',
+      where: 'supabase_id = ?',
+      whereArgs: [supabaseId],
+    );
+    return res.isNotEmpty;
+  }
+
+  Future<List<Map<String, dynamic>>> getExpenses(
+    int userId,
+    String date,
+  ) async {
+    final db = await instance.database;
+    return await db.query(
+      'expenses',
+      where: 'user_id = ? AND date = ?',
+      whereArgs: [userId, date],
+      orderBy: 'id DESC',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getUnsyncedExpenses(int userId) async {
+    final db = await instance.database;
+    return await db.query(
+      'expenses',
+      where: 'user_id = ? AND is_synced = 0',
+      whereArgs: [userId],
+    );
+  }
+
+  Future<int> markAsSynced(int id) async {
+    final db = await instance.database;
+    return await db.update(
+      'expenses',
+      {'is_synced': 1},
+      where: 'id = ?',
+      whereArgs: [id],
     );
   }
 }
