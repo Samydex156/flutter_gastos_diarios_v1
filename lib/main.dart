@@ -469,7 +469,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
             debugPrint("Error borrando remoto: $e");
           }
         } else {
-          if (mounted)
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text(
@@ -477,6 +477,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                 ),
               ),
             );
+          }
         }
       }
 
@@ -568,17 +569,18 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
         if (unsynced.isNotEmpty || newItemsCount > 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Sincronización completada"),
+              content: Text("Sync Ok"),
               backgroundColor: Colors.green,
             ),
           );
         }
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Error de conexión al sincronizar")),
         );
+      }
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
@@ -675,7 +677,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                     }
                   },
                   icon: const Icon(Icons.calendar_month),
-                  label: const Text("Cambiar"),
+                  label: const Text("Cambiar Fecha"),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: Colors.teal,
@@ -696,7 +698,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                     controller: _descCtrl,
                     textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
-                      labelText: "Descripción",
+                      labelText: "Ingresa Descripción",
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
@@ -724,7 +726,10 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
               ],
             ),
           ),
-
+          const Text(
+            "Lista de Movimientos:",
+            style: TextStyle(color: Colors.grey, fontSize: 14),
+          ),
           // LISTA DE GASTOS
           Expanded(
             child: _localExpenses.isEmpty
@@ -736,7 +741,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                   )
                 : ListView.separated(
                     itemCount: _localExpenses.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final item = _localExpenses[index];
                       final synced = item['is_synced'] == 1;
@@ -754,14 +759,17 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                         ),
                         title: Text(
                           item['description'],
-                          style: const TextStyle(fontWeight: FontWeight.w500),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w400,
+                            color: Color.fromARGB(255, 114, 114, 114),
+                          ),
                         ),
                         subtitle: Text(
                           "Bs. ${(item['amount'] as num).toStringAsFixed(2)}",
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
-                            color: Colors.black87,
+                            color: Color.fromARGB(221, 48, 48, 48),
                           ),
                         ),
                         trailing: Row(
@@ -802,17 +810,18 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  "TOTAL DÍA:",
+                  "ACUMULADO DEL DÍA:",
                   style: TextStyle(
                     color: Colors.white70,
                     fontWeight: FontWeight.bold,
+                    fontSize: 18,
                   ),
                 ),
                 Text(
                   "Bs. ${total.toStringAsFixed(2)}",
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 26,
+                    fontSize: 25,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
