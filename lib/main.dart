@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,16 +65,17 @@ class _SplashScreenState extends State<SplashScreen> {
 
     if (users.isNotEmpty) {
       final user = users.first;
-      _goToHome(user['id'] as int, user['email'] as String);
+      _goToMain(user['id'] as int, user['email'] as String);
     } else {
       _goToLogin();
     }
   }
 
-  void _goToHome(int id, String email) {
+  // AHORA VAMOS A LA MAIN SCREEN, NO DIRECTO A EXPENSES
+  void _goToMain(int id, String email) {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => ExpenseHomePage(userId: id, userEmail: email),
+        builder: (context) => MainScreen(userId: id, userEmail: email),
       ),
     );
   }
@@ -163,10 +165,11 @@ class _LoginPageState extends State<LoginPage> {
         await DatabaseHelper.instance.saveLocalUser(userId, email);
 
         if (mounted) {
+          // CAMBIO: Navegar a MainScreen
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) => ExpenseHomePage(userId: userId, userEmail: email),
+              builder: (_) => MainScreen(userId: userId, userEmail: email),
             ),
           );
         }
@@ -310,7 +313,57 @@ class _LoginPageState extends State<LoginPage> {
 }
 
 // ----------------------------------------------------------------
-// PANTALLA PRINCIPAL (Con Edit y Delete)
+// NUEVA CLASE PRINCIPAL: MAIN SCREEN (Con BottomNavigation)
+// ----------------------------------------------------------------
+class MainScreen extends StatefulWidget {
+  final int userId;
+  final String userEmail;
+  const MainScreen({super.key, required this.userId, required this.userEmail});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int _currentIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    // Usamos IndexedStack para mantener el estado de las páginas (que no se recarguen al cambiar)
+    final List<Widget> pages = [
+      ExpenseHomePage(userId: widget.userId, userEmail: widget.userEmail),
+      DashboardPage(userId: widget.userId),
+    ];
+
+    return Scaffold(
+      body: IndexedStack(
+        index: _currentIndex,
+        children: pages,
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (int index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.list_alt),
+            label: 'Movimientos',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart),
+            label: 'Reporte',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------
+// PANTALLA DE GASTOS (Ya no es la "Home" principal, sino una pestaña)
 // ----------------------------------------------------------------
 class ExpenseHomePage extends StatefulWidget {
   final int userId;
@@ -363,7 +416,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
       'date': _dateStr,
       'user_id': widget.userId,
       'is_synced': 0,
-      'supabase_id': null, // Nuevo, no tiene ID remoto aún
+      'supabase_id': null,
     });
 
     if (!mounted) return;
@@ -409,7 +462,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
               final newDesc = editDescCtrl.text.trim();
               final newAmount = double.tryParse(editAmountCtrl.text.trim());
               if (newDesc.isNotEmpty && newAmount != null) {
-                // Actualizamos localmente y marcamos como NO sincronizado para que se suba
                 await DatabaseHelper.instance.updateExpense(item['id'], {
                   'description': newDesc,
                   'amount': newAmount,
@@ -418,7 +470,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                 if (mounted) {
                   Navigator.pop(context);
                   await _loadLocalExpenses();
-                  _syncData(); // Disparar sync para actualizar nube
+                  _syncData();
                 }
               }
             },
@@ -450,10 +502,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
     );
 
     if (confirm == true) {
-      // 1. Borrar de local
       await DatabaseHelper.instance.deleteExpense(item['id']);
-
-      // 2. Intentar borrar de nube si tiene ID remoto y hay internet
       final supabaseId = item['supabase_id'];
       if (supabaseId != null) {
         var connectivity = await Connectivity().checkConnectivity();
@@ -464,28 +513,15 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                 .delete()
                 .eq('id', supabaseId);
           } catch (e) {
-            // Si falla, se queda huérfano en la nube (limitación simple)
-            // O podrías implementar una cola de borrado.
             debugPrint("Error borrando remoto: $e");
-          }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  "Borrado local. Conéctate para borrar de la nube.",
-                ),
-              ),
-            );
           }
         }
       }
-
       await _loadLocalExpenses();
     }
   }
 
-  // --- SYNC MEJORADO ---
+  // --- SYNC ---
   Future<void> _syncData() async {
     if (_isSyncing) return;
     var connectivityResult = await (Connectivity().checkConnectivity());
@@ -500,12 +536,10 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
         widget.userId,
       );
 
-      // 1. SUBIR CAMBIOS (Insert o Update)
       for (var row in unsynced) {
-        final supabaseId = row['supabase_id']; // ¿Ya existe en la nube?
+        final supabaseId = row['supabase_id'];
 
         if (supabaseId == null) {
-          // A) Es NUEVO -> Insertar
           final response = await supabase
               .from('expenses')
               .insert({
@@ -515,15 +549,13 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                 'user_id': row['user_id'],
               })
               .select()
-              .single(); // Pedimos que nos devuelva el dato insertado
+              .single();
 
-          // Guardamos el ID que Supabase le asignó para futuras ediciones
           await DatabaseHelper.instance.updateSupabaseId(
             row['id'],
             response['id'] as int,
           );
         } else {
-          // B) Es EDICIÓN -> Update
           await supabase
               .from('expenses')
               .update({
@@ -532,12 +564,9 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
               })
               .eq('id', supabaseId);
         }
-
-        // Marcar como sincronizado
         await DatabaseHelper.instance.markAsSynced(row['id']);
       }
 
-      // 2. BAJAR DATOS (Solo nuevos para no sobreescribir ediciones locales recientes)
       final remoteData = await supabase
           .from('expenses')
           .select()
@@ -547,8 +576,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
 
       for (var remoteItem in remoteData) {
         final rId = remoteItem['id'];
-
-        // Verificamos si ya tenemos este item por su ID de Supabase
         final exists = await dbHelper.checkIfSupabaseIdExists(rId);
 
         if (!exists) {
@@ -558,7 +585,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
             'date': remoteItem['date'],
             'user_id': widget.userId,
             'is_synced': 1,
-            'supabase_id': rId, // Guardamos la referencia
+            'supabase_id': rId,
           });
           newItemsCount++;
         }
@@ -576,11 +603,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Error de conexión al sincronizar")),
-        );
-      }
+      // Silenciar error común
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
@@ -589,8 +612,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
   Future<void> _logout() async {
     await DatabaseHelper.instance.logoutLocalUser();
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
+    Navigator.of(context, rootNavigator: true).pushReplacement(
       MaterialPageRoute(builder: (_) => const LoginPage()),
     );
   }
@@ -616,6 +638,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
         actions: [
+          // HEMOS QUITADO EL BOTÓN DE REPORTE AQUÍ
           if (_isSyncing)
             const Padding(
               padding: EdgeInsets.all(12.0),
@@ -638,7 +661,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
       ),
       body: Column(
         children: [
-          // HEADER FECHA
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             color: Colors.teal.shade50,
@@ -686,8 +708,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
               ],
             ),
           ),
-
-          // FORMULARIO AGREGAR
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -730,7 +750,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
             "Lista de Movimientos:",
             style: TextStyle(color: Colors.grey, fontSize: 14),
           ),
-          // LISTA DE GASTOS
           Expanded(
             child: _localExpenses.isEmpty
                 ? const Center(
@@ -745,7 +764,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                     itemBuilder: (context, index) {
                       final item = _localExpenses[index];
                       final synced = item['is_synced'] == 1;
-
                       return ListTile(
                         leading: CircleAvatar(
                           backgroundColor: synced
@@ -795,8 +813,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                     },
                   ),
           ),
-
-          // FOOTER TOTAL
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -834,6 +850,341 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
   }
 }
 
+// ----------------------------------------------------------------
+// DASHBOARD / REPORTE (MODIFICADO)
+// ----------------------------------------------------------------
+class DashboardPage extends StatefulWidget {
+  final int userId;
+  const DashboardPage({super.key, required this.userId});
+
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  bool _isLoading = true;
+  double _totalWeek = 0;
+  double _totalMonth = 0;
+  List<double> _dailyTotals = [0, 0, 0, 0, 0, 0, 0];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReportData(); // Se cargará cuando se construya la primera vez
+  }
+  
+  // Agregamos un método público para refrescar si se desea
+  Future<void> refresh() => _loadReportData();
+
+  Future<void> _loadReportData() async {
+    setState(() => _isLoading = true);
+    final now = DateTime.now();
+    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
+    final startOfMonth = DateTime(now.year, now.month, 1);
+    final endOfMonth = DateTime(now.year, now.month + 1, 0);
+
+    final db = DatabaseHelper.instance;
+    final fmt = DateFormat('yyyy-MM-dd');
+
+    final weekExpenses = await db.getExpensesInDateRange(
+      widget.userId,
+      fmt.format(startOfWeek),
+      fmt.format(endOfWeek),
+    );
+
+    final monthExpenses = await db.getExpensesInDateRange(
+      widget.userId,
+      fmt.format(startOfMonth),
+      fmt.format(endOfMonth),
+    );
+
+    double sumWeek = 0;
+    List<double> days = [0, 0, 0, 0, 0, 0, 0];
+
+    for (var item in weekExpenses) {
+      final amount = (item['amount'] as num).toDouble();
+      final date = DateTime.parse(item['date']);
+      sumWeek += amount;
+      int dayIndex = date.weekday - 1;
+      if (dayIndex >= 0 && dayIndex < 7) {
+        days[dayIndex] += amount;
+      }
+    }
+
+    double sumMonth = monthExpenses.fold(
+      0,
+      (prev, item) => prev + (item['amount'] as num).toDouble(),
+    );
+
+    if (mounted) {
+      setState(() {
+        _totalWeek = sumWeek;
+        _totalMonth = sumMonth;
+        _dailyTotals = days;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Reporte de Gastos"),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+        actions: [
+            IconButton(
+                icon: const Icon(Icons.refresh), 
+                onPressed: _loadReportData
+            )
+        ],
+      ),
+      backgroundColor: Colors.grey.shade100,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // TARJETAS
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSummaryCard(
+                          "Esta Semana",
+                          _totalWeek,
+                          Icons.calendar_view_week,
+                          Colors.orange,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildSummaryCard(
+                          "Este Mes",
+                          _totalMonth,
+                          Icons.calendar_month,
+                          Colors.blue,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  const Text(
+                    "Gastos por Día (Gráfico)",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  
+                  // GRÁFICO (Altura reducida a 220)
+                  Container(
+                    height: 220, 
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: BarChart(
+                      BarChartData(
+                        alignment: BarChartAlignment.spaceAround,
+                        maxY: _getMaxY(),
+                        barTouchData: BarTouchData(
+                          enabled: true,
+                          touchTooltipData: BarTouchTooltipData(
+                            // getTooltipColor: (_) => Colors.blueGrey, 
+                            tooltipPadding: const EdgeInsets.all(8),
+                            tooltipMargin: 8,
+                            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                              return BarTooltipItem(
+                                'Bs. ${rod.toY.toStringAsFixed(1)}',
+                                const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        titlesData: FlTitlesData(
+                          show: true,
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              getTitlesWidget: (value, meta) {
+                                const days = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+                                final index = value.toInt();
+                                if (index >= 0 && index < days.length) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 8.0),
+                                    child: Text(
+                                      days[index],
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return const Text('');
+                              },
+                              reservedSize: 30,
+                            ),
+                          ),
+                          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        ),
+                        gridData: const FlGridData(show: false),
+                        borderData: FlBorderData(show: false),
+                        barGroups: _generateBars(),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+                  
+                  // --- NUEVA LISTA DE DETALLE POR DÍA ---
+                  const Text(
+                    "Detalle Diario",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildDailyList(),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+    );
+  }
+
+  // Widget para construir la lista Lunes...Domingo
+  Widget _buildDailyList() {
+    final daysNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    
+    return Container(
+       decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+       ),
+       child: Column(
+         children: List.generate(7, (index) {
+           final amount = _dailyTotals[index];
+           return Column(
+             children: [
+               ListTile(
+                 dense: true,
+                 leading: CircleAvatar(
+                   backgroundColor: Colors.teal.shade50,
+                   child: Text(daysNames[index][0], style: TextStyle(color: Colors.teal)),
+                 ),
+                 title: Text(daysNames[index]),
+                 trailing: Text(
+                   "Bs. ${amount.toStringAsFixed(2)}", 
+                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                 ),
+               ),
+               if (index < 6) const Divider(height: 1, indent: 16, endIndent: 16),
+             ],
+           );
+         }),
+       ),
+    );
+  }
+
+  double _getMaxY() {
+    double max = 0;
+    for (var val in _dailyTotals) {
+      if (val > max) max = val;
+    }
+    return max == 0 ? 100 : max * 1.2;
+  }
+
+  List<BarChartGroupData> _generateBars() {
+    List<BarChartGroupData> bars = [];
+    for (int i = 0; i < 7; i++) {
+      bars.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: _dailyTotals[i],
+              color: Colors.teal,
+              width: 16,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+              backDrawRodData: BackgroundBarChartRodData(
+                show: true,
+                toY: _getMaxY(),
+                color: Colors.grey.shade200,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return bars;
+  }
+
+  Widget _buildSummaryCard(String title, double amount, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Bs. ${amount.toStringAsFixed(2)}",
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.blueGrey.shade800 // Corrección del error de shade
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // =========================================================================
 // GESTOR DE BASE DE DATOS LOCAL (SQLite)
 // =========================================================================
@@ -845,9 +1196,8 @@ class DatabaseHelper {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB(
-      'gastos_offline_v2.db',
-    ); // Cambié nombre para forzar nueva DB limpia
+    // OJO: Mantenemos el nombre que ya usabas para no perder tus datos de prueba
+    _database = await _initDB('gastos_offline_v2.db'); 
     return _database!;
   }
 
@@ -858,7 +1208,6 @@ class DatabaseHelper {
   }
 
   Future _createDB(Database db, int version) async {
-    // Añadimos 'supabase_id' para poder editar/borrar remotamente
     await db.execute('''
     CREATE TABLE expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -895,19 +1244,16 @@ class DatabaseHelper {
     return await db.insert('expenses', row);
   }
 
-  // NUEVO: Actualizar gasto
   Future<int> updateExpense(int id, Map<String, dynamic> row) async {
     final db = await instance.database;
     return await db.update('expenses', row, where: 'id = ?', whereArgs: [id]);
   }
 
-  // NUEVO: Eliminar gasto
   Future<int> deleteExpense(int id) async {
     final db = await instance.database;
     return await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
   }
 
-  // NUEVO: Guardar el ID de Supabase después de subirlo
   Future<int> updateSupabaseId(int localId, int supabaseId) async {
     final db = await instance.database;
     return await db.update(
@@ -928,10 +1274,7 @@ class DatabaseHelper {
     return res.isNotEmpty;
   }
 
-  Future<List<Map<String, dynamic>>> getExpenses(
-    int userId,
-    String date,
-  ) async {
+  Future<List<Map<String, dynamic>>> getExpenses(int userId, String date) async {
     final db = await instance.database;
     return await db.query(
       'expenses',
@@ -957,6 +1300,20 @@ class DatabaseHelper {
       {'is_synced': 1},
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getExpensesInDateRange(
+    int userId,
+    String startDate,
+    String endDate,
+  ) async {
+    final db = await instance.database;
+    return await db.query(
+      'expenses',
+      where: 'user_id = ? AND date >= ? AND date <= ?',
+      whereArgs: [userId, startDate, endDate],
+      orderBy: 'date ASC',
     );
   }
 }

@@ -1,6 +1,6 @@
 name: flutter_gastos01v1
 description: "A new Flutter project."
-publish_to: 'none'
+publish_to: "none"
 version: 0.1.0
 
 environment:
@@ -15,6 +15,7 @@ dependencies:
   path: ^1.9.1
   sqflite: ^2.4.2
   supabase_flutter: ^2.10.3
+  fl_chart: ^0.66.0
 
 dev_dependencies:
   flutter_test:
