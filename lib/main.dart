@@ -8,6 +8,10 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:typed_data';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,7 +35,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Gastos DuQuen',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
       home: const SplashScreen(),
@@ -89,7 +93,7 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.teal,
+      backgroundColor: Colors.blue,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -222,7 +226,7 @@ class _LoginPageState extends State<LoginPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Registrado. Inicia sesión."),
-            backgroundColor: Colors.teal,
+            backgroundColor: Colors.blue,
           ),
         );
       }
@@ -240,7 +244,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.teal,
+      backgroundColor: Colors.blue,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -253,7 +257,7 @@ class _LoginPageState extends State<LoginPage> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  const Icon(Icons.cloud_circle, size: 60, color: Colors.teal),
+                  const Icon(Icons.cloud_circle, size: 60, color: Colors.blue),
                   const SizedBox(height: 20),
                   const Text(
                     "Bienvenido",
@@ -288,7 +292,7 @@ class _LoginPageState extends State<LoginPage> {
                             ElevatedButton(
                               onPressed: _login,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.teal,
+                                backgroundColor: Colors.blue,
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 12,
@@ -336,10 +340,7 @@ class _MainScreenState extends State<MainScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: pages,
-      ),
+      body: IndexedStack(index: _currentIndex, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (int index) {
@@ -352,10 +353,7 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.list_alt),
             label: 'Movimientos',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.bar_chart),
-            label: 'Reporte',
-          ),
+          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Reporte'),
         ],
       ),
     );
@@ -597,7 +595,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text("Sync Ok"),
-              backgroundColor: Colors.green,
+              backgroundColor: Colors.blue,
             ),
           );
         }
@@ -612,9 +610,10 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
   Future<void> _logout() async {
     await DatabaseHelper.instance.logoutLocalUser();
     if (!mounted) return;
-    Navigator.of(context, rootNavigator: true).pushReplacement(
-      MaterialPageRoute(builder: (_) => const LoginPage()),
-    );
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginPage()));
   }
 
   @override
@@ -635,9 +634,26 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
             ),
           ],
         ),
-        backgroundColor: Colors.teal,
+        backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: "Generar PDF",
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => DailyReportPdfPage(
+                    userId: widget.userId,
+                    userEmail: widget.userEmail,
+                    dateStr: _dateStr,
+                    displayDate: _displayDate,
+                  ),
+                ),
+              );
+            },
+          ),
           // HEMOS QUITADO EL BOTÓN DE REPORTE AQUÍ
           if (_isSyncing)
             const Padding(
@@ -663,7 +679,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: Colors.teal.shade50,
+            color: Colors.blue.shade50,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -679,7 +695,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: Colors.teal.shade800,
+                        color: Colors.blue.shade800,
                       ),
                     ),
                   ],
@@ -702,7 +718,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                   label: const Text("Cambiar Fecha"),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
-                    foregroundColor: Colors.teal,
+                    foregroundColor: Colors.blue,
                   ),
                 ),
               ],
@@ -741,7 +757,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                 IconButton.filled(
                   onPressed: _addExpense,
                   icon: const Icon(Icons.add),
-                  style: IconButton.styleFrom(backgroundColor: Colors.teal),
+                  style: IconButton.styleFrom(backgroundColor: Colors.blue),
                 ),
               ],
             ),
@@ -767,11 +783,11 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                       return ListTile(
                         leading: CircleAvatar(
                           backgroundColor: synced
-                              ? Colors.teal.shade100
+                              ? Colors.blue.shade100
                               : Colors.orange.shade100,
                           child: Icon(
                             synced ? Icons.cloud_done : Icons.cloud_upload,
-                            color: synced ? Colors.teal : Colors.orange,
+                            color: synced ? Colors.blue : Colors.orange,
                             size: 20,
                           ),
                         ),
@@ -816,7 +832,7 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.teal.shade900,
+              color: Colors.blue.shade900,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(24),
                 topRight: Radius.circular(24),
@@ -870,9 +886,11 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
-    _loadReportData(); // Se cargará cuando se construya la primera vez
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadReportData();
+    });
   }
-  
+
   // Agregamos un método público para refrescar si se desea
   Future<void> refresh() => _loadReportData();
 
@@ -932,13 +950,13 @@ class _DashboardPageState extends State<DashboardPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Reporte de Gastos"),
-        backgroundColor: Colors.teal,
+        backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
-            IconButton(
-                icon: const Icon(Icons.refresh), 
-                onPressed: _loadReportData
-            )
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadReportData,
+          ),
         ],
       ),
       backgroundColor: Colors.grey.shade100,
@@ -978,14 +996,14 @@ class _DashboardPageState extends State<DashboardPage> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.teal,
+                      color: Colors.blue,
                     ),
                   ),
                   const SizedBox(height: 10),
-                  
+
                   // GRÁFICO (Altura reducida a 220)
                   Container(
-                    height: 220, 
+                    height: 220,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -1005,7 +1023,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         barTouchData: BarTouchData(
                           enabled: true,
                           touchTooltipData: BarTouchTooltipData(
-                            // getTooltipColor: (_) => Colors.blueGrey, 
+                            // getTooltipColor: (_) => Colors.blueGrey,
                             tooltipPadding: const EdgeInsets.all(8),
                             tooltipMargin: 8,
                             getTooltipItem: (group, groupIndex, rod, rodIndex) {
@@ -1025,7 +1043,15 @@ class _DashboardPageState extends State<DashboardPage> {
                             sideTitles: SideTitles(
                               showTitles: true,
                               getTitlesWidget: (value, meta) {
-                                const days = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+                                const days = [
+                                  'L',
+                                  'M',
+                                  'M',
+                                  'J',
+                                  'V',
+                                  'S',
+                                  'D',
+                                ];
                                 final index = value.toInt();
                                 if (index >= 0 && index < days.length) {
                                   return Padding(
@@ -1044,9 +1070,15 @@ class _DashboardPageState extends State<DashboardPage> {
                               reservedSize: 30,
                             ),
                           ),
-                          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          leftTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
+                          topTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
+                          rightTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
                         ),
                         gridData: const FlGridData(show: false),
                         borderData: FlBorderData(show: false),
@@ -1056,14 +1088,14 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
 
                   const SizedBox(height: 24),
-                  
+
                   // --- NUEVA LISTA DE DETALLE POR DÍA ---
                   const Text(
                     "Detalle Diario",
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.teal,
+                      color: Colors.blue,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -1077,35 +1109,50 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // Widget para construir la lista Lunes...Domingo
   Widget _buildDailyList() {
-    final daysNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-    
+    final daysNames = [
+      'Lunes',
+      'Martes',
+      'Miércoles',
+      'Jueves',
+      'Viernes',
+      'Sábado',
+      'Domingo',
+    ];
+
     return Container(
-       decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-       ),
-       child: Column(
-         children: List.generate(7, (index) {
-           final amount = _dailyTotals[index];
-           return Column(
-             children: [
-               ListTile(
-                 dense: true,
-                 leading: CircleAvatar(
-                   backgroundColor: Colors.teal.shade50,
-                   child: Text(daysNames[index][0], style: TextStyle(color: Colors.teal)),
-                 ),
-                 title: Text(daysNames[index]),
-                 trailing: Text(
-                   "Bs. ${amount.toStringAsFixed(2)}", 
-                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                 ),
-               ),
-               if (index < 6) const Divider(height: 1, indent: 16, endIndent: 16),
-             ],
-           );
-         }),
-       ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: List.generate(7, (index) {
+          final amount = _dailyTotals[index];
+          return Column(
+            children: [
+              ListTile(
+                dense: true,
+                leading: CircleAvatar(
+                  backgroundColor: Colors.blue.shade50,
+                  child: Text(
+                    daysNames[index][0],
+                    style: TextStyle(color: Colors.blue),
+                  ),
+                ),
+                title: Text(daysNames[index]),
+                trailing: Text(
+                  "Bs. ${amount.toStringAsFixed(2)}",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              if (index < 6)
+                const Divider(height: 1, indent: 16, endIndent: 16),
+            ],
+          );
+        }),
+      ),
     );
   }
 
@@ -1126,9 +1173,11 @@ class _DashboardPageState extends State<DashboardPage> {
           barRods: [
             BarChartRodData(
               toY: _dailyTotals[i],
-              color: Colors.teal,
+              color: Colors.blue,
               width: 16,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(6),
+              ),
               backDrawRodData: BackgroundBarChartRodData(
                 show: true,
                 toY: _getMaxY(),
@@ -1142,7 +1191,12 @@ class _DashboardPageState extends State<DashboardPage> {
     return bars;
   }
 
-  Widget _buildSummaryCard(String title, double amount, IconData icon, Color color) {
+  Widget _buildSummaryCard(
+    String title,
+    double amount,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1176,7 +1230,7 @@ class _DashboardPageState extends State<DashboardPage> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.blueGrey.shade800 // Corrección del error de shade
+              color: Colors.blueGrey.shade800, // Corrección del error de shade
             ),
           ),
         ],
@@ -1197,7 +1251,7 @@ class DatabaseHelper {
   Future<Database> get database async {
     if (_database != null) return _database!;
     // OJO: Mantenemos el nombre que ya usabas para no perder tus datos de prueba
-    _database = await _initDB('gastos_offline_v2.db'); 
+    _database = await _initDB('gastos_offline_v2.db');
     return _database!;
   }
 
@@ -1274,7 +1328,10 @@ class DatabaseHelper {
     return res.isNotEmpty;
   }
 
-  Future<List<Map<String, dynamic>>> getExpenses(int userId, String date) async {
+  Future<List<Map<String, dynamic>>> getExpenses(
+    int userId,
+    String date,
+  ) async {
     final db = await instance.database;
     return await db.query(
       'expenses',
@@ -1315,5 +1372,169 @@ class DatabaseHelper {
       whereArgs: [userId, startDate, endDate],
       orderBy: 'date ASC',
     );
+  }
+}
+
+// ----------------------------------------------------------------
+// NUEVO MODULO: GENERACIÓN DE PDF DIARIO
+// ----------------------------------------------------------------
+class DailyReportPdfPage extends StatelessWidget {
+  final int userId;
+  final String userEmail;
+  final String dateStr;
+  final String displayDate;
+
+  const DailyReportPdfPage({
+    super.key,
+    required this.userId,
+    required this.userEmail,
+    required this.dateStr,
+    required this.displayDate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Vista Previa PDF"),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+      body: PdfPreview(
+        build: (format) => _generatePdf(format),
+        canChangeOrientation: false,
+        canChangePageFormat: false,
+      ),
+    );
+  }
+
+  Future<Uint8List> _generatePdf(PdfPageFormat format) async {
+    final pdf = pw.Document();
+
+    // 1. Obtener datos
+    final expenses = await DatabaseHelper.instance.getExpenses(userId, dateStr);
+
+    // 2. Calcular total
+    double total = expenses.fold(
+      0,
+      (sum, item) => sum + (item['amount'] as num).toDouble(),
+    );
+
+    // 3. Crear PDF
+    pdf.addPage(
+      pw.Page(
+        pageFormat: format,
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // Encabezado
+              pw.Header(
+                level: 0,
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      "Reporte Diario de Gastos",
+                      style: pw.TextStyle(
+                        fontSize: 24,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      "Gastos DuQuen",
+                      style: const pw.TextStyle(
+                        fontSize: 14,
+                        color: PdfColors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 10),
+
+              // Info Usuario y Fecha
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text("Usuario: $userEmail"),
+                  pw.Text(
+                    "Fecha: $displayDate",
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 20),
+
+              // Tabla de Gastos
+              pw.Table.fromTextArray(
+                context: context,
+                border: null,
+                headerStyle: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                ),
+                headerDecoration: const pw.BoxDecoration(color: PdfColors.blue),
+                rowDecoration: const pw.BoxDecoration(
+                  border: pw.Border(
+                    bottom: pw.BorderSide(color: PdfColors.grey300),
+                  ),
+                ),
+                cellAlignments: {
+                  0: pw.Alignment.centerLeft,
+                  1: pw.Alignment.centerRight,
+                },
+                headers: <String>['Descripción', 'Monto (Bs.)'],
+                data: expenses.map((item) {
+                  return [
+                    item['description'] as String,
+                    (item['amount'] as num).toStringAsFixed(2),
+                  ];
+                }).toList(),
+              ),
+
+              pw.Divider(),
+
+              // Totales
+              pw.Container(
+                alignment: pw.Alignment.centerRight,
+                margin: const pw.EdgeInsets.only(top: 10),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.end,
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    pw.Text(
+                      "TOTAL DEL DÍA:  ",
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      "Bs. ${total.toStringAsFixed(2)}",
+                      style: pw.TextStyle(
+                        fontSize: 18,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.blue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Footer
+              pw.Spacer(),
+              pw.Divider(),
+              pw.Text(
+                "Generado automáticamente por la App Gastos DuQuen",
+                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
   }
 }
