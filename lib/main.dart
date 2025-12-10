@@ -61,7 +61,8 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkLocalSession() async {
-    await Future.delayed(const Duration(seconds: 2));
+    // Mínimo delay para que se vea el logo
+    await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
 
     final db = await DatabaseHelper.instance.database;
@@ -1210,10 +1211,9 @@ class _DashboardPageState extends State<DashboardPage> {
           final day = days[index];
           final amount = _monthDailyTotals[day] ?? 0;
 
-          // Construimos la fecha real para mostrar nombre del día
+          // Construimos la fecha real
           final date = DateTime(_currentMonth.year, _currentMonth.month, day);
 
-          // Usamos una lista simple para español
           final weekDayName = [
             'Lunes',
             'Martes',
@@ -1529,16 +1529,13 @@ class DailyReportPdfPage extends StatelessWidget {
   Future<Uint8List> _generatePdf(PdfPageFormat format) async {
     final pdf = pw.Document();
 
-    // 1. Obtener datos
     final expenses = await DatabaseHelper.instance.getExpenses(userId, dateStr);
 
-    // 2. Calcular total
     double total = expenses.fold(
       0,
       (sum, item) => sum + (item['amount'] as num).toDouble(),
     );
 
-    // 3. Crear PDF
     pdf.addPage(
       pw.Page(
         pageFormat: format,
@@ -1546,7 +1543,6 @@ class DailyReportPdfPage extends StatelessWidget {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // Encabezado
               pw.Header(
                 level: 0,
                 child: pw.Row(
@@ -1570,8 +1566,6 @@ class DailyReportPdfPage extends StatelessWidget {
                 ),
               ),
               pw.SizedBox(height: 10),
-
-              // Info Usuario y Fecha
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
@@ -1583,8 +1577,6 @@ class DailyReportPdfPage extends StatelessWidget {
                 ],
               ),
               pw.SizedBox(height: 20),
-
-              // Tabla de Gastos
               pw.Table.fromTextArray(
                 context: context,
                 border: null,
@@ -1610,10 +1602,7 @@ class DailyReportPdfPage extends StatelessWidget {
                   ];
                 }).toList(),
               ),
-
               pw.Divider(),
-
-              // Totales
               pw.Container(
                 alignment: pw.Alignment.centerRight,
                 margin: const pw.EdgeInsets.only(top: 10),
@@ -1639,8 +1628,6 @@ class DailyReportPdfPage extends StatelessWidget {
                   ],
                 ),
               ),
-
-              // Footer
               pw.Spacer(),
               pw.Divider(),
               pw.Text(
