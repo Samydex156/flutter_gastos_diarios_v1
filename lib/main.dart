@@ -566,6 +566,50 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
     }
   }
 
+  // --- OPCIONES AL TOCAR ITEM ---
+  void _showItemOptions(Map<String, dynamic> item) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  item['description'],
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit, color: Colors.blue),
+                title: const Text('Editar'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showEditDialog(item);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text('Eliminar'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteExpense(item);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // --- SYNC ---
   Future<void> _syncData() async {
     if (_isSyncing) return;
@@ -723,17 +767,16 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _addExpense,
+        backgroundColor: Colors.blue,
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade900,
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(24),
-                bottomRight: Radius.circular(24),
-              ),
-            ),
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(color: Colors.blue.shade900),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -818,38 +861,27 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
           ),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _descCtrl,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: const InputDecoration(
-                      labelText: "Ingresa Descripción",
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
+                TextField(
+                  controller: _descCtrl,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    labelText: "Ingresa Descripción",
+                    border: OutlineInputBorder(),
+                    isDense: true,
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _amountCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: "Monto",
-                      border: OutlineInputBorder(),
-                      prefixText: "Bs. ",
-                      isDense: true,
-                    ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _amountCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: "Monto",
+                    border: OutlineInputBorder(),
+                    prefixText: "Bs. ",
+                    isDense: true,
                   ),
-                ),
-                const SizedBox(width: 10),
-                IconButton.filled(
-                  onPressed: _addExpense,
-                  icon: const Icon(Icons.add),
-                  style: IconButton.styleFrom(backgroundColor: Colors.blue),
                 ),
               ],
             ),
@@ -873,49 +905,34 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
                       final item = _localExpenses[index];
                       final synced = item['is_synced'] == 1;
                       return ListTile(
+                        dense: true,
+                        onTap: () => _showItemOptions(item),
                         leading: CircleAvatar(
+                          radius: 16,
                           backgroundColor: synced
                               ? Colors.blue.shade100
                               : Colors.orange.shade100,
                           child: Icon(
                             synced ? Icons.cloud_done : Icons.cloud_upload,
                             color: synced ? Colors.blue : Colors.orange,
-                            size: 20,
+                            size: 16,
                           ),
                         ),
                         title: Text(
                           item['description'],
                           style: const TextStyle(
-                            fontWeight: FontWeight.w400,
-                            color: Color.fromARGB(255, 114, 114, 114),
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
+                            color: Color.fromARGB(255, 60, 60, 60),
                           ),
                         ),
-                        subtitle: Text(
+                        trailing: Text(
                           "Bs. ${(item['amount'] as num).toStringAsFixed(2)}",
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fontSize: 14,
                             color: Color.fromARGB(221, 48, 48, 48),
                           ),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(
-                                Icons.edit,
-                                color: Colors.blueGrey,
-                              ),
-                              onPressed: () => _showEditDialog(item),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.delete,
-                                color: Colors.redAccent,
-                              ),
-                              onPressed: () => _deleteExpense(item),
-                            ),
-                          ],
                         ),
                       );
                     },
@@ -946,7 +963,6 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   bool _isLoading = true;
-  double _totalWeek = 0;
   double _totalMonth = 0;
   List<double> _dailyTotalsWeek = [0, 0, 0, 0, 0, 0, 0];
   // Mapa para guardar totales por día del mes: día -> monto
@@ -1023,7 +1039,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
     if (mounted) {
       setState(() {
-        _totalWeek = sumWeek;
         _totalMonth = sumMonth;
         _dailyTotalsWeek = daysWeek;
         _monthDailyTotals = monthMap;
@@ -1033,11 +1048,38 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
+  String _getMonthName(int month) {
+    const months = [
+      'Enero',
+      'Febrero',
+      'Marzo',
+      'Abril',
+      'Mayo',
+      'Junio',
+      'Julio',
+      'Agosto',
+      'Septiembre',
+      'Octubre',
+      'Noviembre',
+      'Diciembre',
+    ];
+    // Ajustar por si array es 0-indexed
+    return months[month - 1];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Reporte de Gastos"),
+        title: Column(
+          children: [
+            const Text("Reporte de Gastos", style: TextStyle(fontSize: 14)),
+            Text(
+              "Acumulado Total Mes: Bs. ${_totalMonth.toStringAsFixed(2)}",
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+            ),
+          ],
+        ),
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
@@ -1055,33 +1097,9 @@ class _DashboardPageState extends State<DashboardPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // TARJETAS
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildSummaryCard(
-                          "Esta Semana",
-                          _totalWeek,
-                          Icons.calendar_view_week,
-                          Colors.orange,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildSummaryCard(
-                          "Este Mes",
-                          _totalMonth,
-                          Icons.calendar_month,
-                          Colors.blue,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  const Text(
-                    "Gastos por Día (Gráfico)",
-                    style: TextStyle(
+                  Text(
+                    "Gasto diario - Semana ${_getWeekOfMonth(DateTime.now()) - 1} (Actual) - ${_getMonthName(DateTime.now().month)}",
+                    style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: Colors.blue,
@@ -1092,7 +1110,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   // GRÁFICO (Altura reducida a 220)
                   Container(
                     height: 220,
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -1107,19 +1125,23 @@ class _DashboardPageState extends State<DashboardPage> {
                     child: BarChart(
                       BarChartData(
                         alignment: BarChartAlignment.spaceAround,
-                        maxY: _getMaxY(),
+                        maxY:
+                            _getMaxY() *
+                            1.1, // Un poco más de espacio para etiquetas
                         barTouchData: BarTouchData(
-                          enabled: true,
+                          enabled:
+                              false, // Desactivar interacción táctil para que no parpadee
                           touchTooltipData: BarTouchTooltipData(
-                            // getTooltipColor: (_) => Colors.blueGrey,
-                            tooltipPadding: const EdgeInsets.all(8),
-                            tooltipMargin: 8,
+                            tooltipBgColor: Colors.transparent,
+                            tooltipPadding: EdgeInsets.zero,
+                            tooltipMargin: 2, // Pegado a la barra
                             getTooltipItem: (group, groupIndex, rod, rodIndex) {
                               return BarTooltipItem(
-                                'Bs. ${rod.toY.toStringAsFixed(1)}',
+                                rod.toY.round().toString(),
                                 const TextStyle(
-                                  color: Colors.white,
+                                  color: Colors.black54,
                                   fontWeight: FontWeight.bold,
+                                  fontSize: 10, // Texto pequeño
                                 ),
                               );
                             },
@@ -1178,9 +1200,9 @@ class _DashboardPageState extends State<DashboardPage> {
                   const SizedBox(height: 24),
 
                   // --- NUEVA LISTA DE DETALLE DE MES COMPLETO ---
-                  const Text(
-                    "Detalle Mes Actual",
-                    style: TextStyle(
+                  Text(
+                    "Detalle Mes Actual: ${_getMonthName(_currentMonth.month)} - ${_currentMonth.year}",
+                    style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: Colors.blue,
@@ -1195,7 +1217,14 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // Widget para construir la lista Lunes...Domingo
+  int _getWeekOfMonth(DateTime date) {
+    final firstDay = DateTime(date.year, date.month, 1);
+    final dayOfWeek = firstDay.weekday;
+    // Ajuste simple para semana del mes
+    return ((date.day + dayOfWeek - 2) / 7).ceil() + 1;
+  }
+
+  // Helper para construir la lista ...
   Widget _buildMonthlyList() {
     // Ordenamos las llaves por día (1..31)
     final days = _monthDailyTotals.keys.toList()..sort();
@@ -1227,7 +1256,7 @@ class _DashboardPageState extends State<DashboardPage> {
             'Sábado',
             'Domingo',
           ][date.weekday - 1];
-          final dateStr = "$weekDayName $day";
+          final dateStr = weekDayName;
 
           final isZero = amount == 0;
 
@@ -1292,6 +1321,7 @@ class _DashboardPageState extends State<DashboardPage> {
       bars.add(
         BarChartGroupData(
           x: i,
+          showingTooltipIndicators: [0],
           barRods: [
             BarChartRodData(
               toY: _dailyTotalsWeek[i],
@@ -1311,53 +1341,6 @@ class _DashboardPageState extends State<DashboardPage> {
       );
     }
     return bars;
-  }
-
-  Widget _buildSummaryCard(
-    String title,
-    double amount,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            "Bs. ${amount.toStringAsFixed(2)}",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.blueGrey.shade800, // Corrección del error de shade
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
