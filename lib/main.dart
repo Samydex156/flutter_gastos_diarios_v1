@@ -142,7 +142,7 @@ class _LoginPageState extends State<LoginPage> {
     final connectivityResult = await Connectivity().checkConnectivity();
     if (!mounted) return;
 
-    if (connectivityResult == ConnectivityResult.none) {
+    if (connectivityResult.contains(ConnectivityResult.none)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Necesitas internet para el primer inicio de sesión."),
@@ -357,7 +357,7 @@ class _MainScreenState extends State<MainScreen> {
 
     return PopScope(
       canPop: _currentIndex == 0,
-      onPopInvoked: (didPop) {
+      onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         setState(() {
           _currentIndex = 0;
@@ -478,7 +478,7 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text("Editar Gasto"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -496,7 +496,7 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text("Cancelar"),
           ),
           ElevatedButton(
@@ -509,11 +509,14 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
                   'amount': newAmount,
                   'is_synced': 0,
                 });
-                if (mounted) {
-                  Navigator.pop(context);
-                  await _loadLocalExpenses();
-                  _syncData();
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
                 }
+
+                if (!mounted) return;
+                await _loadLocalExpenses();
+                _syncData();
               }
             },
             child: const Text("Guardar"),
@@ -548,7 +551,7 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
       final supabaseId = item['supabase_id'];
       if (supabaseId != null) {
         var connectivity = await Connectivity().checkConnectivity();
-        if (connectivity != ConnectivityResult.none) {
+        if (!connectivity.contains(ConnectivityResult.none)) {
           try {
             await Supabase.instance.client
                 .from('expenses')
@@ -568,7 +571,7 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
     if (_isSyncing) return;
     var connectivityResult = await (Connectivity().checkConnectivity());
     if (!mounted) return;
-    if (connectivityResult == ConnectivityResult.none) return;
+    if (connectivityResult.contains(ConnectivityResult.none)) return;
 
     setState(() => _isSyncing = true);
 
@@ -633,16 +636,17 @@ class ExpenseHomePageState extends State<ExpenseHomePage> {
         }
       }
 
-      if (mounted) {
-        await _loadLocalExpenses();
-        if (unsynced.isNotEmpty || newItemsCount > 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Sync Ok"),
-              backgroundColor: Colors.blue,
-            ),
-          );
-        }
+      if (!mounted) return;
+      await _loadLocalExpenses();
+
+      if (!mounted) return;
+      if (unsynced.isNotEmpty || newItemsCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Sync Ok"),
+            backgroundColor: Colors.blue,
+          ),
+        );
       }
     } catch (e) {
       // Silenciar error común
@@ -1094,7 +1098,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -1173,7 +1177,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
                   const SizedBox(height: 24),
 
-                  // --- NUEVA LISTA DE DETALLE DE TODO EL MES ---
+                  // --- NUEVA LISTA DE DETALLE DE MES COMPLETO ---
                   const Text(
                     "Detalle Mes Actual",
                     style: TextStyle(
@@ -1205,7 +1209,7 @@ class _DashboardPageState extends State<DashboardPage> {
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: days.length,
-        separatorBuilder: (_, __) =>
+        separatorBuilder: (context, index) =>
             const Divider(height: 1, indent: 16, endIndent: 16),
         itemBuilder: (context, index) {
           final day = days[index];
@@ -1322,12 +1326,12 @@ class _DashboardPageState extends State<DashboardPage> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1577,7 +1581,7 @@ class DailyReportPdfPage extends StatelessWidget {
                 ],
               ),
               pw.SizedBox(height: 20),
-              pw.Table.fromTextArray(
+              pw.TableHelper.fromTextArray(
                 context: context,
                 border: null,
                 headerStyle: pw.TextStyle(
