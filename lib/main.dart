@@ -330,31 +330,58 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  final GlobalKey<ExpenseHomePageState> _expenseKey = GlobalKey();
+
+  void _goToDate(DateTime date) {
+    setState(() {
+      _currentIndex = 0;
+    });
+    // Pequeño delay para asegurar que el cambio de tab se procese
+    Future.delayed(const Duration(milliseconds: 50), () {
+      _expenseKey.currentState?.setDate(date);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     // Usamos IndexedStack para mantener el estado de las páginas (que no se recarguen al cambiar)
     final List<Widget> pages = [
-      ExpenseHomePage(userId: widget.userId, userEmail: widget.userEmail),
-      DashboardPage(userId: widget.userId),
+      ExpenseHomePage(
+        key: _expenseKey,
+        userId: widget.userId,
+        userEmail: widget.userEmail,
+      ),
+      DashboardPage(userId: widget.userId, onDateSelected: _goToDate),
     ];
 
-    return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (int index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.list_alt),
-            label: 'Movimientos',
-          ),
-          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Reporte'),
-        ],
+    return PopScope(
+      canPop: _currentIndex == 0,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        setState(() {
+          _currentIndex = 0;
+        });
+      },
+      child: Scaffold(
+        body: IndexedStack(index: _currentIndex, children: pages),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (int index) {
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.list_alt),
+              label: 'Movimientos',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.bar_chart),
+              label: 'Reporte',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -373,10 +400,10 @@ class ExpenseHomePage extends StatefulWidget {
   });
 
   @override
-  State<ExpenseHomePage> createState() => _ExpenseHomePageState();
+  State<ExpenseHomePage> createState() => ExpenseHomePageState();
 }
 
-class _ExpenseHomePageState extends State<ExpenseHomePage> {
+class ExpenseHomePageState extends State<ExpenseHomePage> {
   final _descCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
 
@@ -394,12 +421,28 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
     _syncData();
   }
 
+  // --- PUBLICO PARA NAVEGACION ---
+  void setDate(DateTime date) {
+    setState(() {
+      _selectedDate = date;
+    });
+    _loadLocalExpenses();
+  }
+
   Future<void> _loadLocalExpenses() async {
     final data = await DatabaseHelper.instance.getExpenses(
       widget.userId,
       _dateStr,
     );
     if (mounted) setState(() => _localExpenses = data);
+  }
+
+  // --- CAMBIAR FECHA RAPIDO ---
+  void _changeDate(int days) {
+    setState(() {
+      _selectedDate = _selectedDate.add(Duration(days: days));
+    });
+    _loadLocalExpenses();
   }
 
   // --- AGREGAR ---
@@ -678,29 +721,73 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: Colors.blue.shade50,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade900,
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(24),
+                bottomRight: Radius.circular(24),
+              ),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Fecha:",
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                    Text(
-                      _displayDate,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue.shade800,
-                      ),
-                    ),
-                  ],
+                const Text(
+                  "ACUMULADO DEL DÍA:",
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
                 ),
-                ElevatedButton.icon(
+                Text(
+                  "Bs. ${total.toStringAsFixed(2)}",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 25,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            color: Colors.blue.shade50,
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: () => _changeDate(-1),
+                  icon: const Icon(Icons.chevron_left, size: 28),
+                  color: Colors.blue,
+                  tooltip: "Día Anterior",
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      const Text(
+                        "Fecha:",
+                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                      Text(
+                        _displayDate,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _changeDate(1),
+                  icon: const Icon(Icons.chevron_right, size: 28),
+                  color: Colors.blue,
+                  tooltip: "Día Siguiente",
+                ),
+                const SizedBox(width: 4),
+                ElevatedButton(
                   onPressed: () async {
                     final d = await showDatePicker(
                       context: context,
@@ -714,12 +801,12 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                       _loadLocalExpenses();
                     }
                   },
-                  icon: const Icon(Icons.calendar_month),
-                  label: const Text("Cambiar Fecha"),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
+                  child: const Icon(Icons.calendar_month),
                 ),
               ],
             ),
@@ -829,37 +916,6 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
                     },
                   ),
           ),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade900,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(24),
-                topRight: Radius.circular(24),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "ACUMULADO DEL DÍA:",
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-                Text(
-                  "Bs. ${total.toStringAsFixed(2)}",
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 25,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -871,7 +927,13 @@ class _ExpenseHomePageState extends State<ExpenseHomePage> {
 // ----------------------------------------------------------------
 class DashboardPage extends StatefulWidget {
   final int userId;
-  const DashboardPage({super.key, required this.userId});
+  final Function(DateTime) onDateSelected; // Callback de navegación
+
+  const DashboardPage({
+    super.key,
+    required this.userId,
+    required this.onDateSelected, // Requerido
+  });
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -881,7 +943,10 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _isLoading = true;
   double _totalWeek = 0;
   double _totalMonth = 0;
-  List<double> _dailyTotals = [0, 0, 0, 0, 0, 0, 0];
+  List<double> _dailyTotalsWeek = [0, 0, 0, 0, 0, 0, 0];
+  // Mapa para guardar totales por día del mes: día -> monto
+  Map<int, double> _monthDailyTotals = {};
+  DateTime _currentMonth = DateTime.now();
 
   @override
   void initState() {
@@ -918,7 +983,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
 
     double sumWeek = 0;
-    List<double> days = [0, 0, 0, 0, 0, 0, 0];
+    List<double> daysWeek = [0, 0, 0, 0, 0, 0, 0];
 
     for (var item in weekExpenses) {
       final amount = (item['amount'] as num).toDouble();
@@ -926,20 +991,38 @@ class _DashboardPageState extends State<DashboardPage> {
       sumWeek += amount;
       int dayIndex = date.weekday - 1;
       if (dayIndex >= 0 && dayIndex < 7) {
-        days[dayIndex] += amount;
+        daysWeek[dayIndex] += amount;
       }
     }
 
-    double sumMonth = monthExpenses.fold(
-      0,
-      (prev, item) => prev + (item['amount'] as num).toDouble(),
+    // Procesar mes completo
+    double sumMonth = 0;
+    Map<int, double> monthMap = {};
+
+    // Inicializar todo el mes en 0 (determinamos cuántos días tiene el mes)
+    int daysInMonth = DateUtils.getDaysInMonth(
+      startOfMonth.year,
+      startOfMonth.month,
     );
+    for (int i = 1; i <= daysInMonth; i++) {
+      monthMap[i] = 0.0;
+    }
+
+    for (var item in monthExpenses) {
+      final amount = (item['amount'] as num).toDouble();
+      final date = DateTime.parse(item['date']);
+      sumMonth += amount;
+      // Asumimos que date cae en este mes porque la query lo filtra
+      monthMap[date.day] = (monthMap[date.day] ?? 0) + amount;
+    }
 
     if (mounted) {
       setState(() {
         _totalWeek = sumWeek;
         _totalMonth = sumMonth;
-        _dailyTotals = days;
+        _dailyTotalsWeek = daysWeek;
+        _monthDailyTotals = monthMap;
+        _currentMonth = startOfMonth;
         _isLoading = false;
       });
     }
@@ -1089,9 +1172,9 @@ class _DashboardPageState extends State<DashboardPage> {
 
                   const SizedBox(height: 24),
 
-                  // --- NUEVA LISTA DE DETALLE POR DÍA ---
+                  // --- NUEVA LISTA DE DETALLE DE TODO EL MES ---
                   const Text(
-                    "Detalle Diario",
+                    "Detalle Mes Actual",
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -1099,7 +1182,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  _buildDailyList(),
+                  _buildMonthlyList(),
                   const SizedBox(height: 20),
                 ],
               ),
@@ -1108,57 +1191,92 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   // Widget para construir la lista Lunes...Domingo
-  Widget _buildDailyList() {
-    final daysNames = [
-      'Lunes',
-      'Martes',
-      'Miércoles',
-      'Jueves',
-      'Viernes',
-      'Sábado',
-      'Domingo',
-    ];
+  Widget _buildMonthlyList() {
+    // Ordenamos las llaves por día (1..31)
+    final days = _monthDailyTotals.keys.toList()..sort();
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Column(
-        children: List.generate(7, (index) {
-          final amount = _dailyTotals[index];
-          return Column(
-            children: [
-              ListTile(
-                dense: true,
-                leading: CircleAvatar(
-                  backgroundColor: Colors.blue.shade50,
-                  child: Text(
-                    daysNames[index][0],
-                    style: TextStyle(color: Colors.blue),
-                  ),
-                ),
-                title: Text(daysNames[index]),
-                trailing: Text(
-                  "Bs. ${amount.toStringAsFixed(2)}",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: days.length,
+        separatorBuilder: (_, __) =>
+            const Divider(height: 1, indent: 16, endIndent: 16),
+        itemBuilder: (context, index) {
+          final day = days[index];
+          final amount = _monthDailyTotals[day] ?? 0;
+
+          // Construimos la fecha real para mostrar nombre del día
+          final date = DateTime(_currentMonth.year, _currentMonth.month, day);
+
+          // Usamos una lista simple para español
+          final weekDayName = [
+            'Lunes',
+            'Martes',
+            'Miércoles',
+            'Jueves',
+            'Viernes',
+            'Sábado',
+            'Domingo',
+          ][date.weekday - 1];
+          final dateStr = "$weekDayName $day";
+
+          final isZero = amount == 0;
+
+          return ListTile(
+            onTap: () {
+              widget.onDateSelected(date);
+            },
+            dense: true,
+            leading: CircleAvatar(
+              backgroundColor: isZero
+                  ? Colors.grey.shade100
+                  : Colors.blue.shade50,
+              child: Text(
+                "$day",
+                style: TextStyle(
+                  color: isZero ? Colors.grey : Colors.blue,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
                 ),
               ),
-              if (index < 6)
-                const Divider(height: 1, indent: 16, endIndent: 16),
-            ],
+            ),
+            title: Text(
+              dateStr,
+              style: TextStyle(color: isZero ? Colors.grey : Colors.black87),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Bs. ${amount.toStringAsFixed(2)}",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: isZero ? Colors.grey : Colors.black,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  size: 14,
+                  color: Colors.grey,
+                ),
+              ],
+            ),
           );
-        }),
+        },
       ),
     );
   }
 
   double _getMaxY() {
     double max = 0;
-    for (var val in _dailyTotals) {
+    for (var val in _dailyTotalsWeek) {
       if (val > max) max = val;
     }
     return max == 0 ? 100 : max * 1.2;
@@ -1172,7 +1290,7 @@ class _DashboardPageState extends State<DashboardPage> {
           x: i,
           barRods: [
             BarChartRodData(
-              toY: _dailyTotals[i],
+              toY: _dailyTotalsWeek[i],
               color: Colors.blue,
               width: 16,
               borderRadius: const BorderRadius.vertical(
